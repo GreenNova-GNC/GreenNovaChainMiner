@@ -5,8 +5,8 @@
 #include <WebServer.h>
 
 // --- Configuration ---
-const char* ssid = "esp32";
-const char* password = "11111111";
+const char* ssid = "your wifi ssid";
+const char* password = "your password wifi";
 const char* apiKey = "esp32-node-01"; // VPS එකේ MINER_KEYS ලැයිස්තුවේ ඇති එකක් විය යුතුයි
 // HTTPS පාවිච්චි කරන නිසා http වෙනුවට https දාන්න
 String serverUrl = "https://mnetwork.greennovachain.site";
