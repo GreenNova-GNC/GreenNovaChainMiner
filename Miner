@@ -7,8 +7,7 @@
 // --- Configuration ---
 const char* ssid = "your wifi ssid";
 const char* password = "your password wifi";
-const char* apiKey = "esp32-node-01"; // VPS එකේ MINER_KEYS ලැයිස්තුවේ ඇති එකක් විය යුතුයි
-// HTTPS පාවිච්චි කරන නිසා http වෙනුවට https දාන්න
+const char* apiKey = "miner key"; 
 String serverUrl = "https://mnetwork.greennovachain.site";
 const int LED_PIN = 2;
 
