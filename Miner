@@ -1,0 +1,113 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <mbedtls/sha256.h>
+#include <WebServer.h>
+
+// --- Configuration ---
+const char* ssid = "esp32";
+const char* password = "11111111";
+const char* apiKey = "esp32-node-01"; // VPS එකේ MINER_KEYS ලැයිස්තුවේ ඇති එකක් විය යුතුයි
+// HTTPS පාවිච්චි කරන නිසා http වෙනුවට https දාන්න
+String serverUrl = "https://mnetwork.greennovachain.site";
+const int LED_PIN = 2;
+
+// --- Variables ---
+String prevHash = "";
+int indexToMine = 0, difficulty = 4;
+volatile long hashes = 0;
+float hashRate = 0;
+bool isMining = false;
+
+WebServer server(80);
+
+String getSHA256(String data) {
+    byte res[32];
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);
+    mbedtls_sha256_update(&ctx, (const unsigned char*)data.c_str(), data.length());
+    mbedtls_sha256_finish(&ctx, res);
+    mbedtls_sha256_free(&ctx);
+    String s = "";
+    for (int i = 0; i < 32; i++) { char buf[3]; sprintf(buf, "%02x", res[i]); s += buf; }
+    return s;
+}
+
+void MinerTask(void * p) {
+    for(;;) {
+        if (isMining && prevHash != "") {
+            long n = 0;
+            String target = ""; for(int i=0; i<difficulty; i++) target += "0";
+            unsigned long start = millis();
+            while (isMining) {
+                String h = getSHA256(String(indexToMine) + String(n) + prevHash + "ESP32_Miner_Node");
+                hashes++;
+                if (hashes % 1000 == 0) {
+                    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+                    unsigned long elap = (millis() - start) / 1000;
+                    if (elap > 0) hashRate = hashes / elap;
+                    vTaskDelay(1);
+                }
+                if (h.substring(0, difficulty) == target) {
+                    isMining = false;
+                    Serial.println("Found! Submitting...");
+                    
+                    HTTPClient http;
+                    http.begin(serverUrl + "/submit_block");
+                    http.addHeader("Content-Type", "application/json");
+                    http.addHeader("X-API-KEY", apiKey); // Security Header
+
+                    JsonDocument doc;
+                    doc["index"] = indexToMine;
+                    doc["nonce"] = n;
+                    doc["prev_hash"] = prevHash;
+                    doc["hash_rate"] = hashRate;
+                    
+                    String body;
+                    serializeJson(doc, body);
+                    int res = http.POST(body);
+                    Serial.println("Server Response: " + String(res));
+                    http.end();
+                    break;
+                }
+                n++;
+            }
+        }
+        vTaskDelay(100);
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(LED_PIN, OUTPUT);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+    Serial.println("\nWiFi Connected!");
+    
+    server.on("/", [](){ server.send(200, "text/plain", "ESP32 Miner Active. HR: " + String(hashRate)); });
+    server.begin();
+    
+    xTaskCreatePinnedToCore(MinerTask, "Miner", 10000, NULL, 1, NULL, 0);
+}
+
+void loop() {
+    server.handleClient();
+    if (!isMining) {
+        HTTPClient http;
+        http.begin(serverUrl + "/get_work");
+        http.addHeader("X-API-KEY", apiKey); // Security Header
+        if (http.GET() == 200) {
+            JsonDocument doc;
+            deserializeJson(doc, http.getString());
+            indexToMine = doc["index"];
+            difficulty = doc["difficulty"];
+            prevHash = doc["previous_hash"].as<String>();
+            hashes = 0;
+            isMining = true;
+            Serial.println("New Work: Block #" + String(indexToMine));
+        }
+        http.end();
+    }
+    delay(3000);
+}
